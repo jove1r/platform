@@ -4,6 +4,8 @@
 import {connect} from 'react-redux';
 import {bindActionCreators} from 'redux';
 import {getUser} from 'mattermost-redux/actions/users';
+import {getTeamStats} from 'mattermost-redux/actions/teams';
+import {getChannelStats} from 'mattermost-redux/actions/channels';
 
 import TeamMembersDropdown from './team_members_dropdown.jsx';
 
@@ -16,7 +18,9 @@ function mapStateToProps(state, ownProps) {
 function mapDispatchToProps(dispatch) {
     return {
         actions: bindActionCreators({
-            getUser
+            getUser,
+            getTeamStats,
+            getChannelStats
         }, dispatch)
     };
 }

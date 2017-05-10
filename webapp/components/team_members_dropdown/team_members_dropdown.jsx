@@ -10,7 +10,6 @@ import ChannelStore from 'stores/channel_store.jsx';
 import {removeUserFromTeam, updateTeamMemberRoles} from 'actions/team_actions.jsx';
 import {loadMyTeamMembers, updateActive} from 'actions/user_actions.jsx';
 
-import * as AsyncClient from 'utils/async_client.jsx';
 import * as Utils from 'utils/utils.jsx';
 
 import React from 'react';
@@ -22,7 +21,9 @@ export default class TeamMembersDropdown extends React.Component {
         user: React.PropTypes.object.isRequired,
         teamMember: React.PropTypes.object.isRequired,
         actions: React.PropTypes.shape({
-            getUser: React.PropTypes.func.isRequired
+            getUser: React.PropTypes.func.isRequired,
+            getTeamStats: React.PropTypes.func.isRequired,
+            getChannelStats: React.PropTypes.func.isRequired
         }).isRequired
     }
 
@@ -76,7 +77,7 @@ export default class TeamMembersDropdown extends React.Component {
             () => {
                 UserStore.removeProfileFromTeam(this.props.teamMember.team_id, this.props.user.id);
                 UserStore.emitInTeamChange();
-                AsyncClient.getTeamStats(this.props.teamMember.team_id);
+                this.props.actions.getTeamStats(this.props.teamMember.team_id);
             },
             (err) => {
                 this.setState({serverError: err.message});
@@ -87,8 +88,8 @@ export default class TeamMembersDropdown extends React.Component {
     handleMakeActive() {
         updateActive(this.props.user.id, true,
             () => {
-                AsyncClient.getChannelStats(ChannelStore.getCurrentId());
-                AsyncClient.getTeamStats(this.props.teamMember.team_id);
+                this.props.actions.getChannelStats(ChannelStore.getCurrentId());
+                this.props.actions.getTeamStats(this.props.teamMember.team_id);
             },
             (err) => {
                 this.setState({serverError: err.message});
@@ -99,8 +100,8 @@ export default class TeamMembersDropdown extends React.Component {
     handleMakeNotActive() {
         updateActive(this.props.user.id, false,
             () => {
-                AsyncClient.getChannelStats(ChannelStore.getCurrentId());
-                AsyncClient.getTeamStats(this.props.teamMember.team_id);
+                this.props.actions.getChannelStats(ChannelStore.getCurrentId());
+                this.props.actions.getTeamStats(this.props.teamMember.team_id);
             },
             (err) => {
                 this.setState({serverError: err.message});

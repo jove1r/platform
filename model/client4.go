@@ -250,6 +250,10 @@ func (c *Client4) GetOAuthAppRoute(appId string) string {
 	return fmt.Sprintf("/oauth/apps/%v", appId)
 }
 
+func (c *Client4) GetOpenGraphRoute() string {
+	return fmt.Sprintf("/opengraph")
+}
+
 func (c *Client4) DoApiGet(url string, etag string) (*http.Response, *AppError) {
 	return c.DoApiRequest(http.MethodGet, c.ApiUrl+url, "", etag)
 }
@@ -440,6 +444,40 @@ func (c *Client4) SwitchAccountType(switchRequest *SwitchRequest) (string, *Resp
 // CreateUser creates a user in the system based on the provided user struct.
 func (c *Client4) CreateUser(user *User) (*User, *Response) {
 	if r, err := c.DoApiPost(c.GetUsersRoute(), user.ToJson()); err != nil {
+		return nil, &Response{StatusCode: r.StatusCode, Error: err}
+	} else {
+		defer closeBody(r)
+		return UserFromJson(r.Body), BuildResponse(r)
+	}
+}
+
+// CreateUserWithHash creates a user in the system based on the provided user struct and hash created.
+func (c *Client4) CreateUserWithHash(user *User, hash, data string) (*User, *Response) {
+	var query string
+	if hash != "" && data != "" {
+		query = fmt.Sprintf("?d=%v&h=%v", url.QueryEscape(data), hash)
+	} else {
+		err := NewAppError("MissingHashOrData", "api.user.create_user.missing_hash_or_data.app_error", nil, "", http.StatusBadRequest)
+		return nil, &Response{StatusCode: err.StatusCode, Error: err}
+	}
+	if r, err := c.DoApiPost(c.GetUsersRoute()+query, user.ToJson()); err != nil {
+		return nil, &Response{StatusCode: r.StatusCode, Error: err}
+	} else {
+		defer closeBody(r)
+		return UserFromJson(r.Body), BuildResponse(r)
+	}
+}
+
+// CreateUserWithInviteId creates a user in the system based on the provided invited id.
+func (c *Client4) CreateUserWithInviteId(user *User, inviteId string) (*User, *Response) {
+	var query string
+	if inviteId != "" {
+		query = fmt.Sprintf("?iid=%v", url.QueryEscape(inviteId))
+	} else {
+		err := NewAppError("MissingInviteId", "api.user.create_user.missing_invite_id.app_error", nil, "", http.StatusBadRequest)
+		return nil, &Response{StatusCode: err.StatusCode, Error: err}
+	}
+	if r, err := c.DoApiPost(c.GetUsersRoute()+query, user.ToJson()); err != nil {
 		return nil, &Response{StatusCode: r.StatusCode, Error: err}
 	} else {
 		defer closeBody(r)
@@ -751,8 +789,8 @@ func (c *Client4) SendPasswordResetEmail(email string) (bool, *Response) {
 }
 
 // ResetPassword uses a recovery code to update reset a user's password.
-func (c *Client4) ResetPassword(code, newPassword string) (bool, *Response) {
-	requestBody := map[string]string{"code": code, "new_password": newPassword}
+func (c *Client4) ResetPassword(token, newPassword string) (bool, *Response) {
+	requestBody := map[string]string{"token": token, "new_password": newPassword}
 	if r, err := c.DoApiPost(c.GetUsersRoute()+"/password/reset", MapToJson(requestBody)); err != nil {
 		return false, &Response{StatusCode: r.StatusCode, Error: err}
 	} else {
@@ -821,9 +859,9 @@ func (c *Client4) GetUserAudits(userId string, page int, perPage int, etag strin
 	}
 }
 
-// VerifyUserEmail will verify a user's email using user id and hash strings.
-func (c *Client4) VerifyUserEmail(userId, hashId string) (bool, *Response) {
-	requestBody := map[string]string{"user_id": userId, "hash_id": hashId}
+// VerifyUserEmail will verify a user's email using the supplied token.
+func (c *Client4) VerifyUserEmail(token string) (bool, *Response) {
+	requestBody := map[string]string{"token": token}
 	if r, err := c.DoApiPost(c.GetUsersRoute()+"/email/verify", MapToJson(requestBody)); err != nil {
 		return false, &Response{StatusCode: r.StatusCode, Error: err}
 	} else {
@@ -1234,6 +1272,17 @@ func (c *Client4) GetPinnedPosts(channelId string, etag string) (*PostList, *Res
 // GetPublicChannelsForTeam returns a list of public channels based on the provided team id string.
 func (c *Client4) GetPublicChannelsForTeam(teamId string, page int, perPage int, etag string) (*ChannelList, *Response) {
 	query := fmt.Sprintf("?page=%v&per_page=%v", page, perPage)
+	if r, err := c.DoApiGet(c.GetChannelsForTeamRoute(teamId)+query, etag); err != nil {
+		return nil, &Response{StatusCode: r.StatusCode, Error: err}
+	} else {
+		defer closeBody(r)
+		return ChannelListFromJson(r.Body), BuildResponse(r)
+	}
+}
+
+// GetDeletedChannelsForTeam returns a list of public channels based on the provided team id string.
+func (c *Client4) GetDeletedChannelsForTeam(teamId string, page int, perPage int, etag string) (*ChannelList, *Response) {
+	query := fmt.Sprintf("/deleted?page=%v&per_page=%v", page, perPage)
 	if r, err := c.DoApiGet(c.GetChannelsForTeamRoute(teamId)+query, etag); err != nil {
 		return nil, &Response{StatusCode: r.StatusCode, Error: err}
 	} else {
@@ -2389,6 +2438,17 @@ func (c *Client4) ListCommands(teamId string, customOnly bool) ([]*Command, *Res
 	}
 }
 
+// ExecuteCommand executes a given command.
+func (c *Client4) ExecuteCommand(channelId, command string) (*CommandResponse, *Response) {
+	commandArgs := &CommandArgs{ChannelId: channelId, Command: command}
+	if r, err := c.DoApiPost(c.GetCommandsRoute()+"/execute", commandArgs.ToJson()); err != nil {
+		return nil, &Response{StatusCode: r.StatusCode, Error: err}
+	} else {
+		defer closeBody(r)
+		return CommandResponseFromJson(r.Body), BuildResponse(r)
+	}
+}
+
 // ListCommands will retrieve a list of commands available in the team.
 func (c *Client4) ListAutocompleteCommands(teamId string) ([]*Command, *Response) {
 	if r, err := c.DoApiGet(c.GetTeamAutoCompleteCommandsRoute(teamId), ""); err != nil {
@@ -2551,5 +2611,20 @@ func (c *Client4) DeleteReaction(reaction *Reaction) (bool, *Response) {
 	} else {
 		defer closeBody(r)
 		return CheckStatusOK(r), BuildResponse(r)
+	}
+}
+
+// Open Graph Metadata Section
+
+// OpenGraph return the open graph metadata for a particular url if the site have the metadata
+func (c *Client4) OpenGraph(url string) (map[string]string, *Response) {
+	requestBody := make(map[string]string)
+	requestBody["url"] = url
+
+	if r, err := c.DoApiPost(c.GetOpenGraphRoute(), MapToJson(requestBody)); err != nil {
+		return nil, &Response{StatusCode: r.StatusCode, Error: err}
+	} else {
+		defer closeBody(r)
+		return MapFromJson(r.Body), BuildResponse(r)
 	}
 }

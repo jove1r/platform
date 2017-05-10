@@ -281,9 +281,36 @@ func UpdateChannel(channel *model.Channel) (*model.Channel, *model.AppError) {
 	}
 }
 
-func PatchChannel(channel *model.Channel, patch *model.ChannelPatch) (*model.Channel, *model.AppError) {
+func PatchChannel(channel *model.Channel, patch *model.ChannelPatch, userId string) (*model.Channel, *model.AppError) {
+	oldChannelDisplayName := channel.DisplayName
+	oldChannelHeader := channel.Header
+	oldChannelPurpose := channel.Purpose
+
 	channel.Patch(patch)
-	return UpdateChannel(channel)
+	channel, err := UpdateChannel(channel)
+	if err != nil {
+		return nil, err
+	}
+
+	if oldChannelDisplayName != channel.DisplayName {
+		if err := PostUpdateChannelDisplayNameMessage(userId, channel.Id, channel.TeamId, oldChannelDisplayName, channel.DisplayName); err != nil {
+			l4g.Error(err.Error())
+		}
+	}
+
+	if channel.Header != oldChannelHeader {
+		if err := PostUpdateChannelHeaderMessage(userId, channel.Id, channel.TeamId, oldChannelHeader, channel.Header); err != nil {
+			l4g.Error(err.Error())
+		}
+	}
+
+	if channel.Purpose != oldChannelPurpose {
+		if err := PostUpdateChannelPurposeMessage(userId, channel.Id, channel.TeamId, oldChannelPurpose, channel.Purpose); err != nil {
+			l4g.Error(err.Error())
+		}
+	}
+
+	return channel, err
 }
 
 func UpdateChannelMemberRoles(channelId string, userId string, newRoles string) (*model.ChannelMember, *model.AppError) {
@@ -408,7 +435,7 @@ func DeleteChannel(channel *model.Channel, userId string) *model.AppError {
 	return nil
 }
 
-func addUserToChannel(user *model.User, channel *model.Channel) (*model.ChannelMember, *model.AppError) {
+func addUserToChannel(user *model.User, channel *model.Channel, teamMember *model.TeamMember) (*model.ChannelMember, *model.AppError) {
 	if channel.DeleteAt > 0 {
 		return nil, model.NewLocAppError("AddUserToChannel", "api.channel.add_user_to_channel.deleted.app_error", nil, "")
 	}
@@ -417,17 +444,7 @@ func addUserToChannel(user *model.User, channel *model.Channel) (*model.ChannelM
 		return nil, model.NewLocAppError("AddUserToChannel", "api.channel.add_user_to_channel.type.app_error", nil, "")
 	}
 
-	tmchan := Srv.Store.Team().GetMember(channel.TeamId, user.Id)
 	cmchan := Srv.Store.Channel().GetMember(channel.Id, user.Id)
-
-	if result := <-tmchan; result.Err != nil {
-		return nil, result.Err
-	} else {
-		teamMember := result.Data.(*model.TeamMember)
-		if teamMember.DeleteAt > 0 {
-			return nil, model.NewLocAppError("AddUserToChannel", "api.channel.add_user.to.channel.failed.deleted.app_error", nil, "")
-		}
-	}
 
 	if result := <-cmchan; result.Err != nil {
 		if result.Err.Id != store.MISSING_CHANNEL_MEMBER_ERROR {
@@ -458,8 +475,19 @@ func addUserToChannel(user *model.User, channel *model.Channel) (*model.ChannelM
 }
 
 func AddUserToChannel(user *model.User, channel *model.Channel) (*model.ChannelMember, *model.AppError) {
+	tmchan := Srv.Store.Team().GetMember(channel.TeamId, user.Id)
+	var teamMember *model.TeamMember
 
-	newMember, err := addUserToChannel(user, channel)
+	if result := <-tmchan; result.Err != nil {
+		return nil, result.Err
+	} else {
+		teamMember = result.Data.(*model.TeamMember)
+		if teamMember.DeleteAt > 0 {
+			return nil, model.NewLocAppError("AddUserToChannel", "api.channel.add_user.to.channel.failed.deleted.app_error", nil, "")
+		}
+	}
+
+	newMember, err := addUserToChannel(user, channel, teamMember)
 	if err != nil {
 		return nil, err
 	}
@@ -490,7 +518,11 @@ func AddChannelMember(userId string, channel *model.Channel, userRequestorId str
 		return nil, err
 	}
 
-	go PostAddToChannelMessage(userRequestor, user, channel)
+	if userId == userRequestorId {
+		postJoinChannelMessage(user, channel)
+	} else {
+		go PostAddToChannelMessage(userRequestor, user, channel)
+	}
 
 	UpdateChannelLastViewedAt([]string{channel.Id}, userRequestor.Id)
 
@@ -683,6 +715,14 @@ func GetChannelByNameForTeamName(channelName, teamName string) (*model.Channel, 
 
 func GetChannelsForUser(teamId string, userId string) (*model.ChannelList, *model.AppError) {
 	if result := <-Srv.Store.Channel().GetChannels(teamId, userId); result.Err != nil {
+		return nil, result.Err
+	} else {
+		return result.Data.(*model.ChannelList), nil
+	}
+}
+
+func GetDeletedChannels(teamId string, offset int, limit int) (*model.ChannelList, *model.AppError) {
+	if result := <-Srv.Store.Channel().GetDeleted(teamId, offset, limit); result.Err != nil {
 		return nil, result.Err
 	} else {
 		return result.Data.(*model.ChannelList), nil
@@ -961,7 +1001,11 @@ func RemoveUserFromChannel(userIdToRemove string, removerUserId string, channel 
 		return err
 	}
 
-	go PostRemoveFromChannelMessage(removerUserId, user, channel)
+	if userIdToRemove == removerUserId {
+		postLeaveChannelMessage(user, channel)
+	} else {
+		go PostRemoveFromChannelMessage(removerUserId, user, channel)
+	}
 
 	return nil
 }

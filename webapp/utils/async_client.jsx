@@ -1,11 +1,8 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
-import BrowserStore from 'stores/browser_store.jsx';
-import ChannelStore from 'stores/channel_store.jsx';
 import UserStore from 'stores/user_store.jsx';
 import TeamStore from 'stores/team_store.jsx';
-import ErrorStore from 'stores/error_store.jsx';
 
 import * as GlobalActions from 'actions/global_actions.jsx';
 
@@ -22,6 +19,12 @@ const StatTypes = Constants.StatTypes;
 const callTracker = {};
 
 const ASYNC_CLIENT_TIMEOUT = 5000;
+
+// Redux actions
+import store from 'stores/redux_store.jsx';
+const dispatch = store.dispatch;
+const getState = store.getState;
+import {setServerVersion} from 'mattermost-redux/actions/general';
 
 export function dispatchError(err, method) {
     AppDispatcher.handleServerAction({
@@ -49,244 +52,7 @@ function isCallInProgress(callName) {
 }
 
 export function checkVersion() {
-    var serverVersion = Client.getServerVersion();
-
-    if (serverVersion !== BrowserStore.getLastServerVersion()) {
-        if (!BrowserStore.getLastServerVersion() || BrowserStore.getLastServerVersion() === '') {
-            BrowserStore.setLastServerVersion(serverVersion);
-        } else {
-            BrowserStore.setLastServerVersion(serverVersion);
-            window.location.reload(true);
-            console.log('Detected version update refreshing the page'); //eslint-disable-line no-console
-        }
-    }
-}
-
-export function getChannels() {
-    return new Promise((resolve, reject) => {
-        if (isCallInProgress('getChannels')) {
-            resolve();
-            return;
-        }
-
-        callTracker.getChannels = utils.getTimestamp();
-
-        Client.getChannels(
-            (data) => {
-                callTracker.getChannels = 0;
-
-                AppDispatcher.handleServerAction({
-                    type: ActionTypes.RECEIVED_CHANNELS,
-                    channels: data
-                });
-                resolve();
-            },
-            (err) => {
-                callTracker.getChannels = 0;
-                dispatchError(err, 'getChannels');
-                reject(new Error('Unable to getChannels'));
-            }
-        );
-    });
-}
-
-export function getChannel(id) {
-    if (isCallInProgress('getChannel' + id)) {
-        return;
-    }
-
-    callTracker['getChannel' + id] = utils.getTimestamp();
-
-    Client.getChannel(id,
-        (data) => {
-            callTracker['getChannel' + id] = 0;
-
-            AppDispatcher.handleServerAction({
-                type: ActionTypes.RECEIVED_CHANNEL,
-                channel: data.channel,
-                member: data.member
-            });
-        },
-        (err) => {
-            callTracker['getChannel' + id] = 0;
-            dispatchError(err, 'getChannel');
-        }
-    );
-}
-
-export function getMyChannelMembers() {
-    return new Promise((resolve, reject) => {
-        if (isCallInProgress('getMyChannelMembers')) {
-            resolve();
-            return;
-        }
-
-        callTracker.getMyChannelMembers = utils.getTimestamp();
-
-        Client.getMyChannelMembers(
-            (data) => {
-                callTracker.getMyChannelMembers = 0;
-
-                AppDispatcher.handleServerAction({
-                    type: ActionTypes.RECEIVED_MY_CHANNEL_MEMBERS,
-                    members: data
-                });
-                resolve();
-            },
-            (err) => {
-                callTracker.getMyChannelMembers = 0;
-                dispatchError(err, 'getMyChannelMembers');
-                reject(new Error('Unable to getMyChannelMembers'));
-            }
-        );
-    });
-}
-
-export function getMyChannelMembersForTeam(teamId) {
-    return new Promise((resolve, reject) => {
-        if (isCallInProgress(`getMyChannelMembers${teamId}`)) {
-            resolve();
-            return;
-        }
-
-        callTracker[`getMyChannelMembers${teamId}`] = utils.getTimestamp();
-
-        Client.getMyChannelMembersForTeam(
-            teamId,
-            (data) => {
-                callTracker[`getMyChannelMembers${teamId}`] = 0;
-
-                AppDispatcher.handleServerAction({
-                    type: ActionTypes.RECEIVED_MY_CHANNEL_MEMBERS,
-                    members: data
-                });
-                resolve();
-            },
-            (err) => {
-                callTracker[`getMyChannelMembers${teamId}`] = 0;
-                dispatchError(err, 'getMyChannelMembersForTeam');
-                reject(new Error('Unable to getMyChannelMembersForTeam'));
-            }
-        );
-    });
-}
-
-export function viewChannel(channelId = ChannelStore.getCurrentId(), prevChannelId = '', time = 0) {
-    if (channelId == null || !Client.teamId) {
-        return;
-    }
-
-    if (isCallInProgress(`viewChannel${channelId}`)) {
-        return;
-    }
-
-    callTracker[`viewChannel${channelId}`] = utils.getTimestamp();
-    Client.viewChannel(
-        channelId,
-        prevChannelId,
-        time,
-        () => {
-            AppDispatcher.handleServerAction({
-                type: ActionTypes.RECEIVED_PREFERENCE,
-                preference: {
-                    category: 'last',
-                    name: TeamStore.getCurrentId(),
-                    value: channelId
-                }
-            });
-
-            callTracker[`viewChannel${channelId}`] = 0;
-            ErrorStore.clearLastError();
-        },
-        (err) => {
-            callTracker[`viewChannel${channelId}`] = 0;
-            const count = ErrorStore.getConnectionErrorCount();
-            ErrorStore.setConnectionErrorCount(count + 1);
-            dispatchError(err, 'viewChannel');
-        }
-    );
-}
-
-export function getMoreChannelsPage(offset, limit) {
-    if (isCallInProgress('getMoreChannelsPage')) {
-        return;
-    }
-
-    callTracker.getMoreChannelsPage = utils.getTimestamp();
-    Client.getMoreChannelsPage(
-        offset,
-        limit,
-        (data) => {
-            callTracker.getMoreChannelsPage = 0;
-
-            AppDispatcher.handleServerAction({
-                type: ActionTypes.RECEIVED_MORE_CHANNELS,
-                channels: data
-            });
-        },
-        (err) => {
-            callTracker.getMoreChannelsPage = 0;
-            dispatchError(err, 'getMoreChannelsPage');
-        }
-    );
-}
-
-export function getChannelStats(channelId = ChannelStore.getCurrentId(), doVersionCheck = false) {
-    if (isCallInProgress('getChannelStats' + channelId) || channelId == null) {
-        return;
-    }
-
-    callTracker['getChannelStats' + channelId] = utils.getTimestamp();
-
-    Client.getChannelStats(
-        channelId,
-        (data) => {
-            callTracker['getChannelStats' + channelId] = 0;
-
-            if (doVersionCheck) {
-                checkVersion();
-            }
-
-            AppDispatcher.handleServerAction({
-                type: ActionTypes.RECEIVED_CHANNEL_STATS,
-                stats: data
-            });
-        },
-        (err) => {
-            callTracker['getChannelStats' + channelId] = 0;
-            dispatchError(err, 'getChannelStats');
-        }
-    );
-}
-
-export function getChannelMember(channelId, userId) {
-    return new Promise((resolve, reject) => {
-        if (isCallInProgress(`getChannelMember${channelId}${userId}`)) {
-            resolve();
-            return;
-        }
-
-        callTracker[`getChannelMember${channelId}${userId}`] = utils.getTimestamp();
-
-        Client.getChannelMember(
-            channelId,
-            userId,
-            (data) => {
-                callTracker[`getChannelMember${channelId}${userId}`] = 0;
-
-                AppDispatcher.handleServerAction({
-                    type: ActionTypes.RECEIVED_CHANNEL_MEMBER,
-                    member: data
-                });
-                resolve();
-            },
-            (err) => {
-                callTracker[`getChannelMember${channelId}${userId}`] = 0;
-                dispatchError(err, 'getChannelMember');
-                reject(new Error('Unable to getChannelMeber'));
-            }
-        );
-    });
+    setServerVersion(Client.getServerVersion())(dispatch, getState);
 }
 
 export function getUser(userId, success, error) {
@@ -418,50 +184,6 @@ export function getConfig(success, error) {
     );
 }
 
-export function getAllTeams() {
-    if (isCallInProgress('getAllTeams')) {
-        return;
-    }
-
-    callTracker.getAllTeams = utils.getTimestamp();
-    Client.getAllTeams(
-        (data) => {
-            callTracker.getAllTeams = 0;
-
-            AppDispatcher.handleServerAction({
-                type: ActionTypes.RECEIVED_ALL_TEAMS,
-                teams: data
-            });
-        },
-        (err) => {
-            callTracker.getAllTeams = 0;
-            dispatchError(err, 'getAllTeams');
-        }
-    );
-}
-
-export function getAllTeamListings() {
-    if (isCallInProgress('getAllTeamListings')) {
-        return;
-    }
-
-    callTracker.getAllTeamListings = utils.getTimestamp();
-    Client.getAllTeamListings(
-        (data) => {
-            callTracker.getAllTeamListings = 0;
-
-            AppDispatcher.handleServerAction({
-                type: ActionTypes.RECEIVED_ALL_TEAM_LISTINGS,
-                teams: data
-            });
-        },
-        (err) => {
-            callTracker.getAllTeams = 0;
-            dispatchError(err, 'getAllTeamListings');
-        }
-    );
-}
-
 export function search(terms, isOrSearch) {
     if (isCallInProgress('search_' + String(terms))) {
         return;
@@ -559,57 +281,6 @@ export function getStatuses() {
     );
 }
 
-export function getMyTeam() {
-    if (isCallInProgress('getMyTeam')) {
-        return null;
-    }
-
-    callTracker.getMyTeam = utils.getTimestamp();
-    return Client.getMyTeam(
-        (data) => {
-            callTracker.getMyTeam = 0;
-
-            AppDispatcher.handleServerAction({
-                type: ActionTypes.RECEIVED_MY_TEAM,
-                team: data
-            });
-        },
-        (err) => {
-            callTracker.getMyTeam = 0;
-            dispatchError(err, 'getMyTeam');
-        }
-    );
-}
-
-export function getTeamMember(teamId, userId) {
-    const callName = `getTeamMember${teamId}${userId}`;
-    if (isCallInProgress(callName)) {
-        return;
-    }
-
-    callTracker[callName] = utils.getTimestamp();
-    Client.getTeamMember(
-        teamId,
-        userId,
-        (data) => {
-            callTracker[callName] = 0;
-
-            const memberMap = {};
-            memberMap[userId] = data;
-
-            AppDispatcher.handleServerAction({
-                type: ActionTypes.RECEIVED_MEMBERS_IN_TEAM,
-                team_id: teamId,
-                team_members: memberMap
-            });
-        },
-        (err) => {
-            callTracker[callName] = 0;
-            dispatchError(err, 'getTeamMember');
-        }
-    );
-}
-
 export function getMyTeamsUnread(teamId) {
     const members = TeamStore.getMyTeamMembers();
     if (members.length > 1) {
@@ -635,31 +306,6 @@ export function getMyTeamsUnread(teamId) {
             }
         );
     }
-}
-
-export function getTeamStats(teamId) {
-    const callName = `getTeamStats${teamId}`;
-    if (isCallInProgress(callName)) {
-        return;
-    }
-
-    callTracker[callName] = utils.getTimestamp();
-    Client.getTeamStats(
-        teamId,
-        (data) => {
-            callTracker[callName] = 0;
-
-            AppDispatcher.handleServerAction({
-                type: ActionTypes.RECEIVED_TEAM_STATS,
-                team_id: teamId,
-                stats: data
-            });
-        },
-        (err) => {
-            callTracker[callName] = 0;
-            dispatchError(err, 'getTeamStats');
-        }
-    );
 }
 
 export function getAllPreferences() {
